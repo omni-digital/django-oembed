@@ -64,7 +64,7 @@ def re_parts(regex_list, text):
     matches = []
 
     # bootstrap the search with the first hit for each iterator
-    for regex, iterator in list(iter_dict.items()):
+    for regex, iterator in iter_dict.items():
         try:
             match = next(iterator)
             heappush(matches, (match.start(), match))
