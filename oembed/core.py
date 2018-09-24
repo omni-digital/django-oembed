@@ -1,5 +1,5 @@
 import re
-import urllib.request, urllib.error, urllib.parse
+import urllib.request, urllib.error
 import gzip
 from heapq import heappush, heappop
 from io import StringIO
