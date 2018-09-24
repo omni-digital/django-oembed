@@ -1,13 +1,17 @@
 import re
-import urllib.request, urllib.error
+import urllib.request, urllib.error, urllib.parse
 import gzip
 from heapq import heappush, heappop
-from io import StringIO
+try:
+    from io import StringIO
+except ImportError:
+    from io import StringIO
 try:
     import simplejson
 except ImportError:
     from django.utils import simplejson
 from django.conf import settings
+from django.utils.http import urlencode
 from django.utils.safestring import mark_safe
 from oembed.models import ProviderRule, StoredOEmbed
 from django.template.loader import render_to_string
@@ -59,18 +63,18 @@ def re_parts(regex_list, text):
         return x.start() - y.start()
     prev_end = 0
     iter_dict = dict((r, r.finditer(text)) for r in regex_list)
-
+    
     # a heapq containing matches
     matches = []
-
+    
     # bootstrap the search with the first hit for each iterator
-    for regex, iterator in iter_dict.items():
+    for regex, iterator in list(iter_dict.items()):
         try:
             match = next(iterator)
             heappush(matches, (match.start(), match))
         except StopIteration:
             iter_dict.pop(regex)
-
+    
     # process matches, revisiting each iterator from which a match is used
     while matches:
         # get the earliest match
@@ -99,16 +103,16 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
     """
     Scans a block of text, replacing anything matched by a ``ProviderRule``
     pattern with an OEmbed html snippet, if possible.
-
+    
     Templates should be stored at oembed/{format}.html, so for example:
-
+        
         oembed/video.html
-
-    These templates are passed a context variable, ``response``, which is a
+        
+    These templates are passed a context variable, ``response``, which is a 
     dictionary representation of the response.
     """
     rules = list(ProviderRule.objects.all())
-    patterns = [re.compile(r.regex) for r in rules] # Compiled patterns from the rules
+    patterns = [re.compile(r.regex, re.I) for r in rules] # Compiled patterns from the rules
     parts = [] # The parts that we will assemble into the final return value.
     indices = [] # List of indices of parts that need to be replaced with OEmbed stuff.
     indices_rules = [] # List of indices into the rules in order for which index was gotten by.
@@ -134,7 +138,7 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
             if to_append:
                 parts.append(to_append)
                 index += 1
-    # Now we fetch a list of all stored patterns, and put it in a dictionary
+    # Now we fetch a list of all stored patterns, and put it in a dictionary 
     # mapping the URL to to the stored model instance.
     for stored_embed in StoredOEmbed.objects.filter(match__in=urls, max_width=max_width, max_height = max_height):
         stored[stored_embed.match] = stored_embed
@@ -149,16 +153,14 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
         except KeyError:
             try:
                 # Build the URL based on the properties defined in the OEmbed spec.
-                url = "%s?url=%s&maxwidth=%s&maxheight=%s&format=%s" % (
-                    rule.endpoint, part, max_width, max_height, FORMAT
-                )
+                sep = "?" in rule.endpoint and "&" or "?"
+                q = urlencode({"url": part,
+                               "maxwidth": max_width,
+                               "maxheight": max_height,
+                               "format": FORMAT})
+                url = "%s%s%s" % (rule.endpoint, sep, q)
                 # Fetch the link and parse the JSON.
                 resp = simplejson.loads(fetch(url))
-
-                # link types that don't have html elements aren't dealt with right now.
-                if resp['type'] == 'link' and 'html' not in resp:
-                    raise ValueError
-
                 # Depending on the embed type, grab the associated template and
                 # pass it the parsed JSON response as context.
                 replacement = render_to_string('oembed/%s.html' % resp['type'], {'response': resp})
