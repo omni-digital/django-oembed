@@ -1,11 +1,8 @@
 import re
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import gzip
 from heapq import heappush, heappop
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
+from io import StringIO
 try:
     import simplejson
 except ImportError:
@@ -26,10 +23,10 @@ def fetch(url, user_agent="django-oembed/0.1"):
     """
     Fetches from a URL, respecting GZip encoding, etc.
     """
-    request = urllib2.Request(url)
+    request = urllib.request.Request(url)
     request.add_header('User-Agent', user_agent)
     request.add_header('Accept-Encoding', 'gzip')
-    opener = urllib2.build_opener()
+    opener = urllib.request.build_opener()
     f = opener.open(request)
     result = f.read()
     if f.headers.get('content-encoding', '') == 'gzip':
@@ -62,18 +59,18 @@ def re_parts(regex_list, text):
         return x.start() - y.start()
     prev_end = 0
     iter_dict = dict((r, r.finditer(text)) for r in regex_list)
-    
+
     # a heapq containing matches
     matches = []
-    
+
     # bootstrap the search with the first hit for each iterator
-    for regex, iterator in iter_dict.items():
+    for regex, iterator in list(iter_dict.items()):
         try:
-            match = iterator.next()
+            match = next(iterator)
             heappush(matches, (match.start(), match))
         except StopIteration:
             iter_dict.pop(regex)
-    
+
     # process matches, revisiting each iterator from which a match is used
     while matches:
         # get the earliest match
@@ -87,7 +84,7 @@ def re_parts(regex_list, text):
         # get the next match from the iterator for this match
         if match.re in iter_dict:
             try:
-                newmatch = iter_dict[match.re].next()
+                newmatch = next(iter_dict[match.re])
                 heappush(matches, (newmatch.start(), newmatch))
             except StopIteration:
                 iter_dict.pop(match.re)
@@ -102,12 +99,12 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
     """
     Scans a block of text, replacing anything matched by a ``ProviderRule``
     pattern with an OEmbed html snippet, if possible.
-    
+
     Templates should be stored at oembed/{format}.html, so for example:
-        
+
         oembed/video.html
-        
-    These templates are passed a context variable, ``response``, which is a 
+
+    These templates are passed a context variable, ``response``, which is a
     dictionary representation of the response.
     """
     rules = list(ProviderRule.objects.all())
@@ -137,7 +134,7 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
             if to_append:
                 parts.append(to_append)
                 index += 1
-    # Now we fetch a list of all stored patterns, and put it in a dictionary 
+    # Now we fetch a list of all stored patterns, and put it in a dictionary
     # mapping the URL to to the stored model instance.
     for stored_embed in StoredOEmbed.objects.filter(match__in=urls, max_width=max_width, max_height = max_height):
         stored[stored_embed.match] = stored_embed
@@ -152,16 +149,16 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
         except KeyError:
             try:
                 # Build the URL based on the properties defined in the OEmbed spec.
-                url = u"%s?url=%s&maxwidth=%s&maxheight=%s&format=%s" % (
+                url = "%s?url=%s&maxwidth=%s&maxheight=%s&format=%s" % (
                     rule.endpoint, part, max_width, max_height, FORMAT
                 )
                 # Fetch the link and parse the JSON.
                 resp = simplejson.loads(fetch(url))
-                
+
                 # link types that don't have html elements aren't dealt with right now.
                 if resp['type'] == 'link' and 'html' not in resp:
                     raise ValueError
-                
+
                 # Depending on the embed type, grab the associated template and
                 # pass it the parsed JSON response as context.
                 replacement = render_to_string('oembed/%s.html' % resp['type'], {'response': resp})
@@ -180,7 +177,7 @@ def replace(text, max_width=MAX_WIDTH, max_height=MAX_HEIGHT):
                 parts[id_to_replace] = part
             except KeyError:
                 parts[id_to_replace] = part
-            except urllib2.HTTPError:
+            except urllib.error.HTTPError:
                 parts[id_to_replace] = part
     # Combine the list into one string and return it.
-    return mark_safe(u''.join(parts))
+    return mark_safe(''.join(parts))
